@@ -24,9 +24,9 @@ int main()
 					{
 						for (auto& valSize : { 4, 16, 64, 256 })
 						{
-							for (auto& container : { "vector", "map", "uo-map", "flatmap" })
+							for (auto& container : { "vector", "map", "unordered_map", "flat_map" })
 							{
-								ofs << "call Release\\pick.a.container.exe ";
+								ofs << "call ..\\Release\\pick.a.container.exe ";
 								ofs << keyFile << " ";
 								ofs << countContainer << " ";
 								ofs << N << " ";
