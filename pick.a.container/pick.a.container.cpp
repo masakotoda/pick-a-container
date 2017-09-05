@@ -161,21 +161,23 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 
 		if (std::chrono::high_resolution_clock::now() - now > min_running)
 		{
-			sampling = s + 1;
+			sampling = (s + 1) * M;
 			break;
 		}
 	}
 
 	auto duration = std::chrono::high_resolution_clock::now() - now;
 	duration -= paddingTime; // Compensate the time taken for padding allocation.
-	auto nano = std::chrono::duration_cast<std::chrono::nanoseconds>(duration);
-	std::cout << nano.count() << " nsec" << std::endl;
+	auto micro = std::chrono::duration_cast<std::chrono::microseconds>(duration);
 
 	ofs << keyFile << "," << M << "," << N << "," << value_size << "," << key_size << ",construction," << constructType << ","
-		<< container_name<ValType, KeyType>(data[0]) << "," << (double)nano.count() / sampling << std::endl;
+		<< container_name<ValType, KeyType>(data[0]) << "," << (double)micro.count() / sampling << std::endl;
 
 
-	auto dummy = std::make_unique<char[]>(16 * 1024 * 1024);
+	// Some data to load on cache (16 MB)
+	const int dummySize = 16 * 1024 * 1024;
+	auto dummySrc = std::make_unique<char[]>(dummySize);
+	auto dummyDst = std::make_unique<char[]>(dummySize);
 	std::chrono::nanoseconds dummyTime{};
 
 	// Prepare random number generator
@@ -217,7 +219,7 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 	now = std::chrono::high_resolution_clock::now();
 	sampling = 0;
 
-	char ret = 0;
+	int ret = 0;
 	for (int s = 0; ; s++)
 	{
 		if (lookupType == 0)
@@ -228,14 +230,14 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 				auto& ll = lookups[i];
 				for (int j = 0; j < N; j++)
 				{
-					ret = lookup<ValType>(dd, ll[j]);
+					ret += lookup<ValType>(dd, ll[j]);
 				}
 
+				// Load a lot of data to cache.
 				auto beforeDummy = std::chrono::high_resolution_clock::now();
-				for (int k = 0; k < 16; k++)
-				{
-					ret += dummy[1024 * 1024 * k];
-				}
+				dummySrc[0] = ret;
+				dummySrc[dummySize - 1] = ret;
+				memcpy(&dummyDst[0], &dummySrc[0], dummySize);
 				dummyTime += (std::chrono::high_resolution_clock::now() - beforeDummy);
 			}
 			if (std::chrono::high_resolution_clock::now() - now > min_running)
@@ -252,15 +254,16 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 				{
 					auto& dd = data[i];
 					auto& ll = lookups[i];
-					ret = lookup<ValType>(dd, ll[j]);
+					ret += lookup<ValType>(dd, ll[j]);
 				}
 
+				// Load a lot of data to cache.
 				auto beforeDummy = std::chrono::high_resolution_clock::now();
-				for (int k = 0; k < 16; k++)
-				{
-					ret += dummy[1024 * 1024 * k];
-				}
+				dummySrc[0] = ret;
+				dummySrc[dummySize - 1] = ret;
+				memcpy(&dummyDst[0], &dummySrc[0], dummySize);
 				dummyTime += (std::chrono::high_resolution_clock::now() - beforeDummy);
+
 				if (std::chrono::high_resolution_clock::now() - now > min_running)
 				{
 					sampling = (j + 1) * M * (s + 1);
@@ -277,11 +280,10 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 	std::cout << ret << std::endl;
 	duration = std::chrono::high_resolution_clock::now() - now;
 	duration -= dummyTime; // Compensate the time taken for dummy access.
-	nano = std::chrono::duration_cast<std::chrono::nanoseconds>(duration);
-	std::cout << nano.count() << " nsec" << std::endl;
+	micro = std::chrono::duration_cast<std::chrono::microseconds>(duration);
 
 	ofs << keyFile << "," << M << "," << N << "," << value_size << "," << key_size << ",lookup," << lookupType << ","
-		<< container_name<ValType, KeyType>(data[0]) << "," << (double)nano.count() / sampling << std::endl;
+		<< container_name<ValType, KeyType>(data[0]) << "," << (double)micro.count() / sampling << std::endl;
 }
 
 template<typename KeyType, int value_size> void runForContainer(const char* container, const std::string& keyFile, int M, int N, int constructType, int lookupType)

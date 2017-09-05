@@ -20,9 +20,9 @@ int main()
 			{
 				for (const std::string& keyFile : { "keys/keys_integer.txt", "keys/keys_string10.txt", "keys/keys_string32.txt" })
 				{
-					for (auto& N : { 10, 100, 1000, 10000 })
+					for (auto& valSize : { 4, 16, 64, 256 })
 					{
-						for (auto& valSize : { 4, 16, 64, 256 })
+						for (auto& N : { 10, 100, 1000, 10000 })
 						{
 							for (auto& container : { "vector", "map", "unordered_map", "flat_map" })
 							{
