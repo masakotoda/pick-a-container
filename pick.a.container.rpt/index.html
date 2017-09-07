@@ -84,9 +84,13 @@
                 return d.keyFile === keyFile &&
                     d.element == element &&
                     d.valueSize == valueSize &&
-                    d.constructOrLookup == 'lookup' &&
-                    d.type == lookupType;
+                    d.constructType == constructType &&
+                    d.lookupType == lookupType;
             });
+
+        filtered.forEach(function (d) {
+            d.value = d.constructMS + d.lookupMS * lookup;
+        });
 
         var y = d3.scale.linear().range([height, 0]);
 
@@ -112,10 +116,13 @@
     }
 
     function type(d) {
-        d.value = +d.value; // coerce to number
+        // coerce to number
+        d.constructMS = +d.constructMS;
+        d.lookupMS = +d.lookupMS;
         d.valueSize = +d.valueSize;
         d.element = +d.element;
-        d.type = +d.type;
+        d.constructType = +d.constructType;
+        d.lookupType = +d.lookupType;
         return d;
     }
 </script>
