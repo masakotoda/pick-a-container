@@ -170,8 +170,8 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 	duration -= paddingTime; // Compensate the time taken for padding allocation.
 	auto micro = std::chrono::duration_cast<std::chrono::microseconds>(duration);
 
-	ofs << keyFile << "," << M << "," << N << "," << value_size << "," << key_size << ",construction," << constructType << ","
-		<< container_name<ValType, KeyType>(data[0]) << "," << (double)micro.count() / sampling << std::endl;
+	ofs << keyFile << "," << M << "," << N << "," << value_size << "," << key_size << ","
+		<< container_name<ValType, KeyType>(data[0]) << "," << constructType << "," << (double)micro.count() / sampling << ",";
 
 
 	// Some data to load on cache (16 MB)
@@ -282,8 +282,7 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 	duration -= dummyTime; // Compensate the time taken for dummy access.
 	micro = std::chrono::duration_cast<std::chrono::microseconds>(duration);
 
-	ofs << keyFile << "," << M << "," << N << "," << value_size << "," << key_size << ",lookup," << lookupType << ","
-		<< container_name<ValType, KeyType>(data[0]) << "," << (double)micro.count() / sampling << std::endl;
+	ofs << lookupType << "," << (double)micro.count() / sampling << std::endl;
 }
 
 template<typename KeyType, int value_size> void runForContainer(const char* container, const std::string& keyFile, int M, int N, int constructType, int lookupType)
