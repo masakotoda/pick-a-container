@@ -18,7 +18,7 @@ int main()
 		{
 			for (auto& lookupType : { "lookup-continuously", "lookup-sporadic" })
 			{
-				for (const std::string& keyFile : { "keys/keys_integer.txt", "keys/keys_string10.txt", "keys/keys_string32.txt" })
+				for (const std::string& keyFile : { "../keys/keys_integer.txt", "../keys/keys_string10.txt", "../keys/keys_string32.txt" })
 				{
 					for (auto& valSize : { 4, 16, 64, 256 })
 					{
