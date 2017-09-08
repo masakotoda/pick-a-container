@@ -3,11 +3,16 @@
 <style>
     .chart rect {
         fill: steelblue;
+        fill-opacity: .6;
+    }
+
+    .chart overlayRect {
+        fill: red;
     }
 
     .chart text {
-        fill: white;
-        font: 10px;
+        fill: black;
+        font: 11px Helvetica Neue;
         text-anchor: middle;
     }
 
@@ -73,6 +78,12 @@
         charts[id] = chart;
     }
 
+    function getShortContainerName(name) {
+        if (name == "unordered_map") return "uo-map";
+        if (name == "flat_map") return "f-map";
+        return name;
+    }
+
     function drawChart(key, keyFile, valueSize, constructType, lookupType, element, lookup, data) {
 
         var width = w - margin.left - margin.right;
@@ -108,11 +119,22 @@
             .attr("height", function (d) { return height - y(d.value); })
             .attr("width", barWidth - 1);
 
+        bar.append("rect")
+            .attr("y", function (d) { return y(d.constructMS); })
+            .attr("height", function (d) { return height - y(d.constructMS); })
+            .attr("width", barWidth - 1);
+
         bar.append("text")
             .attr("x", barWidth / 2)
-            .attr("y", function (d) { return y(d.value) + 3; })
+            .attr("y", function (d) { return y(d.value) > height * 0.7 ? y(d.value) - 33 : y(d.value) + 3; })
             .attr("dy", ".75em")
-            .text(function (d) { return d.container; });
+            .text(function (d) { return getShortContainerName(d.container); });
+
+        bar.append("text")
+            .attr("x", barWidth / 2)
+            .attr("y", function (d) { return y(d.value) > height * 0.7 ? y(d.value) - 18 : y(d.value) + 18; })
+            .attr("dy", ".75em")
+            .text(function (d) { return Number(d.value).toPrecision(3); });
     }
 
     function type(d) {
@@ -125,10 +147,29 @@
         d.lookupType = +d.lookupType;
         return d;
     }
-</script>
 
+    function makeTitle(keyFile, valueSize, constructType, lookupType) {
+        var title = "Key: ";
+        if (keyFile.indexOf("integer") > 0)
+            title += "Integer";
+        else if (keyFile.indexOf("string10") > 0)
+            title += "Short string (10 bytes)";
+        else if (keyFile.indexOf("string32") > 0)
+            title += "Long string (32 bytes)";
+        else
+            title += keyFile;
+        title += ", Value size: " + valueSize + " bytes";
+        if (constructType == 0)
+            title += ", Construct all once";
+        else
+            title += ", Construct sporadically";
+        if (lookupType == 0)
+            title += ", Lookup continuously";
+        else
+            title += ", Lookup sporadically";
+        return title;
+    }
 
-<script>
     function drawAllCharts() {
 
         var keyFiles = ['../keys/keys_integer.txt', '../keys/keys_string10.txt', '../keys/keys_string32.txt'];
@@ -143,7 +184,7 @@
                         var key = keyFile + valueSize + constructType + lookupType;
 
                         document.write('<p class="title">');
-                        document.write(key);
+                        document.write(makeTitle(keyFile, valueSize, constructType, lookupType));
                         document.write('</p>');
 
                         document.write("<p>")
