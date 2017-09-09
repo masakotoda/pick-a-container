@@ -34,9 +34,11 @@ template <typename T> int getSize(const std::string& s)
 		return s.length();
 }
 
-template <typename Pair, typename T> void reserve(T& data, int r)
+template <typename K, typename V, typename T> void reserve(T& data, int r)
 {
-	if constexpr (std::is_same_v<T, std::vector<Pair>>)
+	if constexpr (std::is_same_v<T, std::vector<std::pair<K, T>>>)
+		data.reserve(r);
+	else if constexpr (std::is_same_v<T, boost::container::flat_map<K, V>>)
 		data.reserve(r);
 }
 
@@ -117,7 +119,7 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 		for (auto& d : data)
 		{
 			d.clear();
-			reserve<std::pair<KeyType, ValType>>(d, N);
+			reserve<KeyType, ValType>(d, N);
 		}
 
 		int count = 0;
