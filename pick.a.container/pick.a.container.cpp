@@ -116,15 +116,16 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 	for (int s = 0; ; s++)
 	{
 		padding.clear();
-		for (auto& d : data)
-		{
-			d.clear();
-			reserve<KeyType, ValType>(d, N);
-		}
 
 		int count = 0;
 		if (constructType == 0)
 		{
+			for (auto& d : data)
+			{
+				d.clear();
+				reserve<KeyType, ValType>(d, N);
+			}
+
 			for (int i = 0; i < M; i++)
 			{
 				auto& d = data[i];
@@ -145,6 +146,12 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 		}
 		else
 		{
+			for (auto& d : data)
+			{
+				d.clear();
+				// When elements are being added sporadically, we won't typically know how many we should reserve in advance.
+			}
+
 			for (int j = 0; j < N; j++)
 			{
 				for (int i = 0; i < M; i++)
