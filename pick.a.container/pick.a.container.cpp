@@ -18,6 +18,13 @@
 #include <boost/container/flat_map.hpp>
 
 
+std::chrono::nanoseconds timeFunction(const std::function<void()>& f)
+{
+	auto now = std::chrono::high_resolution_clock::now();
+	f();
+	return std::chrono::high_resolution_clock::now() - now;
+}
+
 template <typename T> T convert(const std::string& s)
 {
 	if constexpr (std::is_same_v<T, int>)
@@ -105,11 +112,10 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 
 	std::list<std::unique_ptr<char[]>> padding;
 
-	std::chrono::nanoseconds paddingTime{};
-
 	const auto min_running = std::chrono::seconds(3);
 	uint64_t sampling = 0;
-	auto now = std::chrono::high_resolution_clock::now();
+	std::chrono::nanoseconds time1{}; // Time spent for things we care.
+	std::chrono::nanoseconds time2{}; // Time spent for things we don't care.
 
 	// Construction
 	std::vector<Container> data(M);
@@ -120,74 +126,83 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 		int count = 0;
 		if (constructType == 0)
 		{
-			for (auto& d : data)
+			time1 += timeFunction([&data, N]()
 			{
-				d.clear();
-				reserve<KeyType, ValType>(d, N);
-			}
+				for (auto& d : data)
+				{
+					d.clear();
+					reserve<KeyType, ValType>(d, N);
+				}
+			});
 
 			for (int i = 0; i < M; i++)
 			{
-				auto& d = data[i];
-				for (int j = 0; j < N; j++)
+				time1 += timeFunction([&data, &keys, &count, N, i]()
 				{
-					emplace<ValType>(d, keys.at(count));
-					count++;
-				}
+					auto& d = data[i];
+					for (int j = 0; j < N; j++)
+					{
+						emplace<ValType>(d, keys.at(count));
+						count++;
+					}
+				});
 
-				// Padding
-				auto beforePadding = std::chrono::high_resolution_clock::now();
-				for (int j = 0; j < N; j++)
+				time2 += timeFunction([padding_size, &padding, N]
 				{
-					padding.emplace_back(std::make_unique<char[]>(padding_size));
-				}
-				paddingTime += (std::chrono::high_resolution_clock::now() - beforePadding);
+					// Padding
+					for (int j = 0; j < N; j++)
+					{
+						padding.emplace_back(std::make_unique<char[]>(padding_size));
+					}
+				});
 			}
 		}
 		else
 		{
-			for (auto& d : data)
+			time1 += timeFunction([&data]()
 			{
-				d.clear();
-				// When elements are being added sporadically, we won't typically know how many we should reserve in advance.
-			}
+				for (auto& d : data)
+				{
+					d.clear();
+					// When elements are being added sporadically, we won't typically know how many we should reserve in advance.
+				}
+			});
 
 			for (int j = 0; j < N; j++)
 			{
 				for (int i = 0; i < M; i++)
 				{
-					auto& d = data[i];
-					emplace<ValType>(d, keys.at(count));
-					count++;
+					time1 += timeFunction([&data, &keys, &count, N, i]()
+					{
+						auto& d = data[i];
+						emplace<ValType>(d, keys.at(count));
+						count++;
+					});
 
 					// Padding
-					auto beforePadding = std::chrono::high_resolution_clock::now();
-					padding.emplace_back(std::make_unique<char[]>(padding_size));
-					paddingTime += (std::chrono::high_resolution_clock::now() - beforePadding);
+					time2 += timeFunction([padding_size, &padding]()
+					{
+						padding.emplace_back(std::make_unique<char[]>(padding_size));
+					});
 				}
 			}
 		}
 
-		if (std::chrono::high_resolution_clock::now() - now > min_running)
+		if (time1 + time2 > min_running)
 		{
 			sampling = (s + 1) * M;
 			break;
 		}
 	}
 
-	auto duration = std::chrono::high_resolution_clock::now() - now;
-	duration -= paddingTime; // Compensate the time taken for padding allocation.
-	auto micro = std::chrono::duration_cast<std::chrono::microseconds>(duration);
+	auto micro = std::chrono::duration_cast<std::chrono::microseconds>(time1);
 
 	ofs << keyFile << "," << M << "," << N << "," << value_size << "," << key_size << ","
 		<< container_name<ValType, KeyType>(data[0]) << "," << constructType << "," << (double)micro.count() / sampling << ",";
 
 
-	// Some data to load on cache (16 MB)
-	const int dummySize = 16 * 1024 * 1024;
-	auto dummySrc = std::make_unique<char[]>(dummySize);
-	auto dummyDst = std::make_unique<char[]>(dummySize);
-	std::chrono::nanoseconds dummyTime{};
+	// Some data to clear cache (16 MB)
+	auto clearCache = std::vector<int64_t>(2 * 1024 * 1024);
 
 	// Prepare random number generator
 	std::random_device random_device;
@@ -225,31 +240,35 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 
 
 	// Look up
-	now = std::chrono::high_resolution_clock::now();
+	time1 = {};
+	time2 = {};
 	sampling = 0;
 
-	int ret = 0;
+	int64_t ret = 0;
 	for (int s = 0; ; s++)
 	{
 		if (lookupType == 0)
 		{
 			for (int i = 0; i < M; i++)
 			{
-				auto& dd = data[i];
-				auto& ll = lookups[i];
-				for (int j = 0; j < N; j++)
+				time1 += timeFunction([&data, &lookups, N, i, &ret]()
 				{
-					ret += lookup<ValType>(dd, ll[j]);
-				}
+					auto& dd = data[i];
+					auto& ll = lookups[i];
+					for (int j = 0; j < N; j++)
+					{
+						ret += lookup<ValType>(dd, ll[j]);
+					}
+				});
 
 				// Load a lot of data to cache.
-				auto beforeDummy = std::chrono::high_resolution_clock::now();
-				dummySrc[0] = ret;
-				dummySrc[dummySize - 1] = ret;
-				memcpy(&dummyDst[0], &dummySrc[0], dummySize);
-				dummyTime += (std::chrono::high_resolution_clock::now() - beforeDummy);
+				time2 += timeFunction([&clearCache, &ret]()
+				{
+					ret = std::accumulate(clearCache.begin(), clearCache.end(),
+						ret, [](auto x, auto y) { return x + y; });
+				});
 			}
-			if (std::chrono::high_resolution_clock::now() - now > min_running)
+			if (time1 + time2 > min_running)
 			{
 				sampling = M * N * (s + 1);
 				break;
@@ -259,21 +278,24 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 		{
 			for (int j = 0; j < N; j++)
 			{
-				for (int i = 0; i < M; i++)
+				time1 += timeFunction([&data, &lookups, M, j, &ret]()
 				{
-					auto& dd = data[i];
-					auto& ll = lookups[i];
-					ret += lookup<ValType>(dd, ll[j]);
-				}
+					for (int i = 0; i < M; i++)
+					{
+						auto& dd = data[i];
+						auto& ll = lookups[i];
+						ret += lookup<ValType>(dd, ll[j]);
+					}
+				});
 
 				// Load a lot of data to cache.
-				auto beforeDummy = std::chrono::high_resolution_clock::now();
-				dummySrc[0] = ret;
-				dummySrc[dummySize - 1] = ret;
-				memcpy(&dummyDst[0], &dummySrc[0], dummySize);
-				dummyTime += (std::chrono::high_resolution_clock::now() - beforeDummy);
+				time2 += timeFunction([&clearCache, &ret]()
+				{
+					ret = std::accumulate(clearCache.begin(), clearCache.end(),
+						ret, [](auto x, auto y) { return x + y; });
+				});
 
-				if (std::chrono::high_resolution_clock::now() - now > min_running)
+				if (time1 + time2 > min_running)
 				{
 					sampling = (j + 1) * M * (s + 1);
 					break;
@@ -287,9 +309,7 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 	}
 
 	std::cout << ret << std::endl;
-	duration = std::chrono::high_resolution_clock::now() - now;
-	duration -= dummyTime; // Compensate the time taken for dummy access.
-	micro = std::chrono::duration_cast<std::chrono::microseconds>(duration);
+	micro = std::chrono::duration_cast<std::chrono::microseconds>(time1);
 
 	ofs << lookupType << "," << (double)micro.count() / sampling << std::endl;
 }
