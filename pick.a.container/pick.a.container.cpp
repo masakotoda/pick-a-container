@@ -16,6 +16,7 @@
 #include <vector>
 #include <boost/format.hpp>
 #include <boost/container/flat_map.hpp>
+//#include <xmmintrin.h>
 
 
 std::chrono::nanoseconds timeFunction(const std::function<void()>& f)
@@ -23,6 +24,15 @@ std::chrono::nanoseconds timeFunction(const std::function<void()>& f)
 	auto now = std::chrono::high_resolution_clock::now();
 	f();
 	return std::chrono::high_resolution_clock::now() - now;
+}
+
+void removeAnomalies(std::chrono::nanoseconds& t, uint64_t& sampling, std::vector<std::chrono::nanoseconds>& times)
+{
+	uint64_t m = sampling / times.size();
+	size_t elimination = static_cast<size_t>(times.size() * 0.05); // 5 % of anomalies.
+	std::partial_sort(times.begin(), times.begin() + elimination, times.end(), [](auto& a, auto& b) { return a > b; });
+	sampling -= (elimination * m);
+	t -= std::accumulate(times.begin(), times.begin() + elimination, std::chrono::nanoseconds{}, [](auto a, auto b) { return a + b; });
 }
 
 template <typename T> T convert(const std::string& s)
@@ -116,6 +126,7 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 	uint64_t sampling = 0;
 	std::chrono::nanoseconds time1{}; // Time spent for things we care.
 	std::chrono::nanoseconds time2{}; // Time spent for things we don't care.
+	std::vector<std::chrono::nanoseconds> times; // I don't want to use anomalies. So, remember all and remove anomalies.
 
 	// Construction
 	std::vector<Container> data(M);
@@ -124,6 +135,7 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 		padding.clear();
 
 		int count = 0;
+		auto timeOld = time1;
 		if (constructType == 0)
 		{
 			time1 += timeFunction([&data, N]()
@@ -188,13 +200,15 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 			}
 		}
 
+		times.emplace_back(time1 - timeOld);
+		sampling += M;
 		if (time1 + time2 > min_running)
 		{
-			sampling = (s + 1) * M;
 			break;
 		}
 	}
 
+	removeAnomalies(time1, sampling, times);
 	auto micro = std::chrono::duration_cast<std::chrono::microseconds>(time1);
 
 	ofs << keyFile << "," << M << "," << N << "," << value_size << "," << key_size << ","
@@ -242,6 +256,7 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 	// Look up
 	time1 = {};
 	time2 = {};
+	times.clear();
 	sampling = 0;
 
 	int64_t ret = 0;
@@ -249,6 +264,7 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 	{
 		if (lookupType == 0)
 		{
+			auto oldTime = time1;
 			for (int i = 0; i < M; i++)
 			{
 				time1 += timeFunction([&data, &lookups, N, i, &ret]()
@@ -264,13 +280,17 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 				// Load a lot of data to cache.
 				time2 += timeFunction([&clearCache, &ret]()
 				{
-					ret = std::accumulate(clearCache.begin(), clearCache.end(),
-						ret, [](auto x, auto y) { return x + y; });
+					// I tried _mm_prefetch. It's too slow (note 1 invocation is only for 1 line which is 32B/64B)
+					// I tried accumulate. It's just slow. I go with simple one.
+					for (auto x : clearCache)
+						ret += x;
 				});
 			}
+
+			times.push_back(time1 - oldTime);
+			sampling += (M * N);
 			if (time1 + time2 > min_running)
 			{
-				sampling = M * N * (s + 1);
 				break;
 			}
 		}
@@ -278,6 +298,8 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 		{
 			for (int j = 0; j < N; j++)
 			{
+				auto oldTime = time1;
+
 				time1 += timeFunction([&data, &lookups, M, j, &ret]()
 				{
 					for (int i = 0; i < M; i++)
@@ -291,17 +313,20 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 				// Load a lot of data to cache.
 				time2 += timeFunction([&clearCache, &ret]()
 				{
-					ret = std::accumulate(clearCache.begin(), clearCache.end(),
-						ret, [](auto x, auto y) { return x + y; });
+					// I tried _mm_prefetch. It's too slow (note 1 invocation is only for 1 line which is 32B/64B)
+					// I tried accumulate. It's just slow. I go with simple one.
+					for (auto x : clearCache)
+						ret += x;
 				});
 
+				times.push_back(time1 - oldTime);
+				sampling += M;
 				if (time1 + time2 > min_running)
 				{
-					sampling = (j + 1) * M * (s + 1);
 					break;
 				}
 			}
-			if (sampling > 0)
+			if (time1 + time2 > min_running)
 			{
 				break;
 			}
@@ -309,6 +334,8 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 	}
 
 	std::cout << ret << std::endl;
+
+	removeAnomalies(time1, sampling, times);
 	micro = std::chrono::duration_cast<std::chrono::microseconds>(time1);
 
 	ofs << lookupType << "," << (double)micro.count() / sampling << std::endl;
@@ -365,10 +392,10 @@ int main(int argc, char** argv)
 	if (argc < 9)
 		return 0;
 
-	const std::string keyFile = argv[1]; // "keys/keys_string32.txt"; // integer,8,16,32
-	const int M = atoi(argv[2]); // 10; // # of container instances
-	const int N = atoi(argv[3]);// 1000; // # of elements of each container 10,100,1000,10000,100000
-	const int value_size = atoi(argv[4]); // 4,16,64,256
+	const std::string keyFile = argv[1];   // "keys/keys_string32.txt"; // integer,8,string10,string32
+	const int M = atoi(argv[2]);           // 10; // # of container instances
+	const int N = atoi(argv[3]);           // 1000; // # of elements of each container 10,100,1000,10000,100000
+	const int value_size = atoi(argv[4]);  // 4,16,64,256
 
 	int constructType = 0;
 	if (strcmp(argv[7], "construct-sporadic") == 0)
