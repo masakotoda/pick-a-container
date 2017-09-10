@@ -19,6 +19,9 @@
 //#include <xmmintrin.h>
 
 
+const std::string s_outFile = "statistics.txt";
+const auto s_minRunning = std::chrono::seconds(1);
+
 std::chrono::nanoseconds timeFunction(const std::function<void()>& f)
 {
 	auto now = std::chrono::high_resolution_clock::now();
@@ -29,10 +32,67 @@ std::chrono::nanoseconds timeFunction(const std::function<void()>& f)
 void removeAnomalies(std::chrono::nanoseconds& t, uint64_t& sampling, std::vector<std::chrono::nanoseconds>& times)
 {
 	uint64_t m = sampling / times.size();
-	size_t elimination = static_cast<size_t>(times.size() * 0.05); // 5 % of anomalies.
-	std::partial_sort(times.begin(), times.begin() + elimination, times.end(), [](auto& a, auto& b) { return a > b; });
-	sampling -= (elimination * m);
-	t -= std::accumulate(times.begin(), times.begin() + elimination, std::chrono::nanoseconds{}, [](auto a, auto b) { return a + b; });
+	size_t anomalies = static_cast<size_t>(times.size() * 0.05); // 5% of anomalies.
+	std::partial_sort(times.begin(), times.begin() + anomalies, times.end(), [](auto& a, auto& b) { return a > b; });
+	sampling -= (anomalies * m);
+	t -= std::accumulate(times.begin(), times.begin() + anomalies, std::chrono::nanoseconds{}, [](auto a, auto b) { return a + b; });
+}
+
+template <typename K> void generateLookups(const std::vector<K>& keys, std::vector<std::vector<K>>& lookups)
+{
+	// Prepare random number generator
+	std::random_device randomDevice;
+	std::mt19937 engine{ randomDevice() };
+	auto random = [&engine](int lb, int ub)
+	{
+		std::uniform_int_distribution<int> dist(lb, ub);
+		return dist(engine);
+	};
+
+	int N = keys.size() / lookups.size();
+
+	// Fill keys to lookups in the order of appearance.
+	{
+		int count = 0;
+		for (auto& l : lookups)
+		{
+			for (int j = 0; j < N; j++)
+			{
+				l.push_back(keys.at(count));
+				count++;
+			}
+		}
+	}
+
+	// Shuffle the order
+	for (auto& l : lookups)
+	{
+		for (int j = 0; j < N; j++)
+		{
+			int n = random(0, N - 1);
+			int m = random(0, N - 1);
+			std::swap(l[n], l[m]);
+		}
+	}
+}
+
+template <typename K> std::vector<K> loadKeys(const std::string& keyFile, int count)
+{
+	std::ifstream ifs{ keyFile };
+
+	std::vector<K> keys;
+	keys.reserve(count);
+
+	while (static_cast<int>(keys.size()) < count)
+	{
+		std::string s;
+		ifs >> s;
+		if (s.empty())
+			break;
+		keys.emplace_back(convert<K>(s));
+	}
+
+	return keys;
 }
 
 template <typename T> T convert(const std::string& s)
@@ -43,7 +103,7 @@ template <typename T> T convert(const std::string& s)
 		return s;
 }
 
-template <typename T> int getSize(const std::string& s)
+template <typename T> int getSize(const T& s)
 {
 	if constexpr (std::is_same_v<T, int>)
 		return sizeof(int);
@@ -72,16 +132,16 @@ template <typename V, typename K, typename T> char lookup(T& data, const K& key)
 	if constexpr (std::is_same_v<T, std::vector<std::pair<K, V>>>)
 	{
 		auto it = std::find_if(data.begin(), data.end(), [&key](const auto& x) { return x.first == key; });
-		return it->second[0];
+		return it->second.front() + it->second.back();
 	}
 	else
 	{
 		auto it = data.find(key);
-		return it->second[0];
+		return it->second.front() + it->second.back();
 	}
 }
 
-template <typename V, typename K, typename T> std::string container_name(T& data)
+template <typename V, typename K, typename T> std::string containerName(T& data)
 {
 	if constexpr (std::is_same_v<T, std::vector<std::pair<K, V>>>)
 		return "vector";
@@ -95,34 +155,24 @@ template <typename V, typename K, typename T> std::string container_name(T& data
 		return "unknown";
 }
 
-template <typename KeyType, typename Container, int value_size>
+template <typename KeyType, typename Container, int valueSize>
 void run(const std::string& keyFile, int M, int N, int constructType, int lookupType)
 {
-	using ValType = std::array<unsigned char, value_size>;
+	using ValType = std::array<unsigned char, valueSize>;
 
 	constexpr int MAX_N = 100000;
-	int key_size = 0;
-	int padding_size = 0;
+	int keySize = 0;
+	int paddingSize = 0;
 
-	const std::string outFile = "statistics.txt";
-	std::ofstream ofs{ outFile, std::ios::out | std::ios::app };
+	std::vector<KeyType> keys = loadKeys<KeyType>(keyFile, M * N);
+	if (keys.empty())
+		return;
 
-	std::ifstream ifs{ keyFile };
-	std::vector<KeyType> keys;
-	keys.reserve(M * N);
-	while (static_cast<int>(keys.size()) < M * N)
-	{
-		std::string s;
-		ifs >> s;
-		keys.emplace_back(convert<KeyType>(s));
-		if (key_size == 0)
-			key_size = getSize<KeyType>(s);
-	}
-	padding_size = (value_size + key_size) * (MAX_N - N) / N;
+	keySize = getSize(keys.at(0));
+	paddingSize = (valueSize + keySize) * (MAX_N - N) / N;
 
 	std::list<std::unique_ptr<char[]>> padding;
 
-	const auto min_running = std::chrono::seconds(3);
 	uint64_t sampling = 0;
 	std::chrono::nanoseconds time1{}; // Time spent for things we care.
 	std::chrono::nanoseconds time2{}; // Time spent for things we don't care.
@@ -130,7 +180,7 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 
 	// Construction
 	std::vector<Container> data(M);
-	for (int s = 0; ; s++)
+	for (;;)
 	{
 		padding.clear();
 
@@ -159,12 +209,12 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 					}
 				});
 
-				time2 += timeFunction([padding_size, &padding, N]
+				time2 += timeFunction([paddingSize, &padding, N]
 				{
 					// Padding
 					for (int j = 0; j < N; j++)
 					{
-						padding.emplace_back(std::make_unique<char[]>(padding_size));
+						padding.emplace_back(std::make_unique<char[]>(paddingSize));
 					}
 				});
 			}
@@ -192,9 +242,9 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 					});
 
 					// Padding
-					time2 += timeFunction([padding_size, &padding]()
+					time2 += timeFunction([paddingSize, &padding]()
 					{
-						padding.emplace_back(std::make_unique<char[]>(padding_size));
+						padding.emplace_back(std::make_unique<char[]>(paddingSize));
 					});
 				}
 			}
@@ -202,7 +252,7 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 
 		times.emplace_back(time1 - timeOld);
 		sampling += M;
-		if (time1 + time2 > min_running)
+		if (time1 + time2 > s_minRunning)
 		{
 			break;
 		}
@@ -211,47 +261,18 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 	removeAnomalies(time1, sampling, times);
 	auto micro = std::chrono::duration_cast<std::chrono::microseconds>(time1);
 
-	ofs << keyFile << "," << M << "," << N << "," << value_size << "," << key_size << ","
-		<< container_name<ValType, KeyType>(data[0]) << "," << constructType << "," << (double)micro.count() / sampling << ",";
-
+	{
+		std::ofstream ofs{ s_outFile, std::ios::out | std::ios::app };
+		ofs << keyFile << "," << M << "," << N << "," << valueSize << "," << keySize << ","
+			<< containerName<ValType, KeyType>(data[0]) << "," << constructType << "," << (double)micro.count() / sampling << ",";
+	}
 
 	// Some data to clear cache (16 MB)
 	auto clearCache = std::vector<int64_t>(2 * 1024 * 1024);
 
-	// Prepare random number generator
-	std::random_device random_device;
-	std::mt19937 engine{ random_device() };
-	auto random = [&engine](int lb, int ub)
-	{
-		std::uniform_int_distribution<int> dist(lb, ub);
-		return dist(engine);
-	};
-
-
 	// Create look up data
 	std::vector<std::vector<KeyType>> lookups(M);
-
-	{
-		int count = 0;
-		for (auto& l : lookups)
-		{
-			for (int j = 0; j < N; j++)
-			{
-				l.push_back(keys.at(count));
-				count++;
-			}
-		}
-		for (auto& l : lookups)
-		{
-			for (int j = 0; j < N; j++)
-			{
-				int n = random(0, N - 1);
-				int m = random(0, N - 1);
-				std::swap(l[n], l[m]);
-			}
-		}
-	}
-
+	generateLookups(keys, lookups);
 
 	// Look up
 	time1 = {};
@@ -259,8 +280,8 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 	times.clear();
 	sampling = 0;
 
-	int64_t ret = 0;
-	for (int s = 0; ; s++)
+	int64_t ret = 0; // Use this variable to avoid codes get optimized away...
+	for (;;)
 	{
 		if (lookupType == 0)
 		{
@@ -289,7 +310,7 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 
 			times.push_back(time1 - oldTime);
 			sampling += (M * N);
-			if (time1 + time2 > min_running)
+			if (time1 + time2 > s_minRunning)
 			{
 				break;
 			}
@@ -321,12 +342,12 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 
 				times.push_back(time1 - oldTime);
 				sampling += M;
-				if (time1 + time2 > min_running)
+				if (time1 + time2 > s_minRunning)
 				{
 					break;
 				}
 			}
-			if (time1 + time2 > min_running)
+			if (time1 + time2 > s_minRunning)
 			{
 				break;
 			}
@@ -338,50 +359,57 @@ void run(const std::string& keyFile, int M, int N, int constructType, int lookup
 	removeAnomalies(time1, sampling, times);
 	micro = std::chrono::duration_cast<std::chrono::microseconds>(time1);
 
-	ofs << lookupType << "," << (double)micro.count() / sampling << std::endl;
+	{
+		std::ofstream ofs{ s_outFile, std::ios::out | std::ios::app };
+		ofs << lookupType << "," << (double)micro.count() / sampling << std::endl;
+	}
 }
 
-template<typename KeyType, int value_size> void runForContainer(const char* container, const std::string& keyFile, int M, int N, int constructType, int lookupType)
+template<typename KeyType, int valueSize> void runForContainer(
+	const std::string& container, const std::string& keyFile,
+	int M, int N, int constructType, int lookupType)
 {
-	using ValType = std::array<unsigned char, value_size>;
+	using ValType = std::array<unsigned char, valueSize>;
 
-	if (strcmp(container, "map") == 0)
+	if (container == "map")
 	{
 		using Container = std::map<KeyType, ValType>;
-		run<KeyType, Container, value_size>(keyFile, M, N, constructType, lookupType);
+		run<KeyType, Container, valueSize>(keyFile, M, N, constructType, lookupType);
 	}
-	if (strcmp(container, "vector") == 0)
+	if (container == "vector")
 	{
 		using Container = std::vector<std::pair<KeyType, ValType>>;
-		run<KeyType, Container, value_size>(keyFile, M, N, constructType, lookupType);
+		run<KeyType, Container, valueSize>(keyFile, M, N, constructType, lookupType);
 	}
-	if (strcmp(container, "unordered_map") == 0)
+	if (container == "unordered_map")
 	{
 		using Container = std::unordered_map<KeyType, ValType>;
-		run<KeyType, Container, value_size>(keyFile, M, N, constructType, lookupType);
+		run<KeyType, Container, valueSize>(keyFile, M, N, constructType, lookupType);
 	}
-	if (strcmp(container, "flat_map") == 0)
+	if (container == "flat_map")
 	{
 		using Container = boost::container::flat_map<KeyType, ValType>;
-		run<KeyType, Container, value_size>(keyFile, M, N, constructType, lookupType);
+		run<KeyType, Container, valueSize>(keyFile, M, N, constructType, lookupType);
 	}
 }
 
-template<typename KeyType> void runForValueSize(const char* container, const std::string& keyFile, int M, int N, int value_size, int constructType, int lookupType)
+template<typename KeyType> void runForValueSize(int valueSize,
+	const std::string& container, const std::string& keyFile, int M, int N,
+	int constructType, int lookupType)
 {
-	if (value_size == 4)
+	if (valueSize == 4)
 	{
 		runForContainer<KeyType, 4>(container, keyFile, M, N, constructType, lookupType);
 	}
-	if (value_size == 16)
+	if (valueSize == 16)
 	{
 		runForContainer<KeyType, 16>(container, keyFile, M, N, constructType, lookupType);
 	}
-	if (value_size == 64)
+	if (valueSize == 64)
 	{
 		runForContainer<KeyType, 64>(container, keyFile, M, N, constructType, lookupType);
 	}
-	if (value_size == 256)
+	if (valueSize == 256)
 	{
 		runForContainer<KeyType, 256>(container, keyFile, M, N, constructType, lookupType);
 	}
@@ -392,31 +420,23 @@ int main(int argc, char** argv)
 	if (argc < 9)
 		return 0;
 
-	const std::string keyFile = argv[1];   // "keys/keys_string32.txt"; // integer,8,string10,string32
-	const int M = atoi(argv[2]);           // 10; // # of container instances
-	const int N = atoi(argv[3]);           // 1000; // # of elements of each container 10,100,1000,10000,100000
-	const int value_size = atoi(argv[4]);  // 4,16,64,256
+	const std::string keyFile = argv[1];   // keys/keys_integer.txt, string10.txt, or string32.txt
+	const int M = atoi(argv[2]);           // # of container instances (I'm always passing 10 though...)
+	const int N = atoi(argv[3]);           // # of elements of each container - 10, 100, 1000, or 10000
+	const int valueSize = atoi(argv[4]);  // 4, 16, 64, or 256
+	const std::string keyType = argv[5];   // string or integer
+	const std::string container = argv[6]; // vector, map, unordered_map, or flat_map
+	const int constructType = strcmp(argv[7], "construct-sporadic") == 0 ? 1 : 0;
+	const int lookupType = strcmp(argv[8], "lookup-sporadic") == 0 ? 1 : 0;
 
-	int constructType = 0;
-	if (strcmp(argv[7], "construct-sporadic") == 0)
-	{
-		constructType = 1;
-	}
-
-	int lookupType = 0;
-	if (strcmp(argv[8], "lookup-sporadic") == 0)
-	{
-		lookupType = 1;
-	}
-
-	if (strcmp(argv[5], "string") == 0)
+	if (keyType == "string")
 	{
 		using KeyType = std::string;
-		runForValueSize<KeyType>(argv[6], keyFile, M, N, value_size, constructType, lookupType);
+		runForValueSize<KeyType>(valueSize, container, keyFile, M, N, constructType, lookupType);
 	}
 	else
 	{
 		using KeyType = int;
-		runForValueSize<KeyType>(argv[6], keyFile, M, N, value_size, constructType, lookupType);
+		runForValueSize<KeyType>(valueSize, container, keyFile, M, N, constructType, lookupType);
 	}
 }
