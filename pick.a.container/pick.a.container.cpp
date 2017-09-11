@@ -20,7 +20,7 @@
 
 
 const std::string s_outFile = "statistics.txt";
-const auto s_minRunning = std::chrono::seconds(1);
+const auto s_minRunning = std::chrono::seconds(10);
 
 std::chrono::nanoseconds timeFunction(const std::function<void()>& f)
 {
