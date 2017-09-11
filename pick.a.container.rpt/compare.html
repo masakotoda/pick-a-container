@@ -1,0 +1,413 @@
+﻿<!DOCTYPE html>
+
+<head>
+    <meta charset="utf-8" />
+</head>
+
+<!--jquery-->
+<script src="http://code.jquery.com/jquery-3.2.1.min.js" integrity="sha256-hwg4gsxgFZhOsEEamdOYGBf13FyQuiTwlAQgxVSNgt4=" crossorigin="anonymous"></script>    
+
+<!--bootstrap-->
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-alpha.6/css/bootstrap.min.css" integrity="sha384-rwoIResjU2yc3z8GV/NPeZWAv56rSmLldC3R/AZzGRnGxQQKnKkoFVhFQhNUwEyJ" crossorigin="anonymous">
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-alpha.6/js/bootstrap.min.js" integrity="sha384-vBWWzlZJ8ea9aCX4pEW3rVHjgjt7zpkNpZk+02D9phzyeVkE+jo0ieGizqPLForn" crossorigin="anonymous"></script>
+
+<!--font awesome-->
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+
+<!--vue-->
+<script src="https://unpkg.com/vue"></script>
+
+<!--d3-->
+<script src="//d3js.org/d3.v3.min.js" charset="utf-8"></script>
+
+<style>
+    .chart rect {
+        fill: steelblue;
+        fill-opacity: .6;
+    }
+
+    .chart text {
+        fill: black;
+        font-size: 60%;
+        text-anchor: middle;
+    }
+
+    .colHead {
+        font-size: 125%;
+        fill: #a00;
+    }
+
+    .rowHead {
+        font-size: 125%;
+        fill: #00a;
+    }
+
+    .title {
+        font-size: 200%;
+        color: #666;
+    }
+
+    div.chart1 {
+        height: 900px;
+        width: 900px;
+    }
+    div.chart2 {
+        height: 900px;
+        width: 900px;
+    }
+</style>
+
+<script>
+    var w = 180;
+    var h = 140;
+    var margin = { top: 10, right: 10, bottom: 10, left: 10 };
+    var charts = new Map;
+    var allData = [];
+
+    function colLabel(target, label) {
+        var svg = d3.select(target).append("svg")
+            .attr("width", w)
+            .attr("height", h / 3)
+            .append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+        var title = svg.append("text")
+            .attr("class", "colHead")
+            .attr("dy", ".71em")
+            .text(label);
+    }
+
+    function rowLabel(target, label) {
+        var svg = d3.select(target).append("svg")
+            .attr("width", w)
+            .attr("height", h)
+            .append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+        var title = svg.append("text")
+            .attr("class", "rowHead")
+            .attr("dy", ".71em")
+            .text(label);
+    }
+
+    function createChart(target, id) {
+        var chart = d3.select(target).append("svg")
+            .attr("width", w)
+            .attr("height", h)
+            .append("g")
+            .attr("class", "chart")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+        charts[id] = chart;
+    }
+
+    function getShortContainerName(name) {
+        if (name == "unordered_map") return "uo-map";
+        if (name == "flat_map") return "f-map";
+        return name;
+    }
+
+    function drawChart(key, keyFile, valueSize, constructType, lookupType, element, lookup, data) {
+
+        var width = w - margin.left - margin.right;
+        var height = h - margin.top - margin.bottom;
+        var chart = charts[key];
+
+        chart.selectAll("*").remove();
+
+        var filtered = data.filter(
+            function (d) {
+                return d.keyFile === keyFile &&
+                    d.element == element &&
+                    d.valueSize == valueSize &&
+                    d.constructType == constructType &&
+                    d.lookupType == lookupType;
+            });
+
+        filtered.forEach(function (d) {
+            d.value = d.constructMS + d.lookupMS * lookup;
+        });
+
+        var y = d3.scale.linear().range([height, 0]);
+
+        y.domain([0, d3.max(filtered, function (d) { return d.value; })]);
+
+        var barWidth = width / filtered.length;
+
+        var bar = chart.selectAll("g")
+            .data(filtered)
+            .enter().append("g")
+            .attr("transform", function (d, i) { return "translate(" + i * barWidth + ",0)"; });
+
+        bar.append("rect")
+            .attr("y", function (d) { return y(d.value); })
+            .attr("height", function (d) { return height - y(d.value); })
+            .attr("width", barWidth - 1);
+
+        bar.append("rect")
+            .attr("y", function (d) { return y(d.constructMS); })
+            .attr("height", function (d) { return height - y(d.constructMS); })
+            .attr("width", barWidth - 1);
+
+        bar.append("text")
+            .attr("x", barWidth / 2)
+            .attr("y", function (d) { return y(d.value) > height * 0.7 ? y(d.value) - 33 : y(d.value) + 3; })
+            .attr("dy", ".75em")
+            .text(function (d) { return getShortContainerName(d.container); });
+
+        bar.append("text")
+            .attr("x", barWidth / 2)
+            .attr("y", function (d) { return y(d.value) > height * 0.7 ? y(d.value) - 18 : y(d.value) + 18; })
+            .attr("dy", ".75em")
+            .text(function (d) { return Number(d.value).toPrecision(3); });
+    }
+
+    function type(d) {
+        // coerce to number
+        d.constructMS = +d.constructMS;
+        d.lookupMS = +d.lookupMS;
+        d.valueSize = +d.valueSize;
+        d.element = +d.element;
+        d.constructType = +d.constructType;
+        d.lookupType = +d.lookupType;
+        return d;
+    }
+
+    function drawAllCharts(chartNum, arg) {
+
+        var keyFile = "../keys/keys_";
+        switch (arg.keyType) {
+            case "integer":
+                keyFile += "integer.txt";
+                break;
+            case "short_string":
+                keyFile += "string10.txt";
+                break;
+            case "long_string":
+                keyFile += "string32.txt";
+                break;
+        }
+
+        var valueSize = arg.valueSize;
+        var constructType = arg.constructType == "sporadic" ? 1 : 0;
+        var lookupType = arg.lookupType == "sporadic" ? 1 : 0;
+
+        var key = chartNum.toString();
+
+        drawChart(key + "1a", keyFile, valueSize, constructType, lookupType, 10, 10, allData);
+        drawChart(key + "1b", keyFile, valueSize, constructType, lookupType, 10, 100, allData);
+        drawChart(key + "2b", keyFile, valueSize, constructType, lookupType, 100, 100, allData);
+        drawChart(key + "1c", keyFile, valueSize, constructType, lookupType, 10, 1000, allData);
+        drawChart(key + "2c", keyFile, valueSize, constructType, lookupType, 100, 1000, allData);
+        drawChart(key + "3c", keyFile, valueSize, constructType, lookupType, 1000, 1000, allData);
+        drawChart(key + "1d", keyFile, valueSize, constructType, lookupType, 10, 10000, allData);
+        drawChart(key + "2d", keyFile, valueSize, constructType, lookupType, 100, 10000, allData);
+        drawChart(key + "3d", keyFile, valueSize, constructType, lookupType, 1000, 10000, allData);
+        drawChart(key + "4d", keyFile, valueSize, constructType, lookupType, 10000, 10000, allData);
+        drawChart(key + "1e", keyFile, valueSize, constructType, lookupType, 10, 100000, allData);
+        drawChart(key + "2e", keyFile, valueSize, constructType, lookupType, 100, 100000, allData);
+        drawChart(key + "3e", keyFile, valueSize, constructType, lookupType, 1000, 100000, allData);
+        drawChart(key + "4e", keyFile, valueSize, constructType, lookupType, 10000, 100000, allData);
+    }
+
+    function createAllCharts(chartNum) {
+
+        var target = "#chart" + chartNum;
+        var key = chartNum.toString();
+
+        document.write("<p>")
+        colLabel(target, "");
+        colLabel(target, "10 elements");
+        colLabel(target, "100 elements");
+        colLabel(target, "1,000 elements");
+        colLabel(target, "10,000 elements");
+        document.write("</p>")
+
+        document.write("<p>")
+        rowLabel(target, "10 lookups");
+        createChart(target, key + "1a");
+        colLabel(target, "");
+        colLabel(target, "");
+        colLabel(target, "");
+        document.write("</p>")
+
+        document.write("<p>")
+        rowLabel(target, "100 lookups");
+        createChart(target, key + "1b");
+        createChart(target, key + "2b");
+        colLabel(target, "");
+        colLabel(target, "");
+        document.write("</p>")
+
+        document.write("<p>")
+        rowLabel(target, "1,000 lookups");
+        createChart(target, key + "1c");
+        createChart(target, key + "2c");
+        createChart(target, key + "3c");
+        colLabel(target, "");
+        document.write("</p>")
+
+        document.write("<p>")
+        rowLabel(target, "10,000 lookups");
+        createChart(target, key + "1d");
+        createChart(target, key + "2d");
+        createChart(target, key + "3d");
+        createChart(target, key + "4d");
+        document.write("</p>")
+
+        document.write("<p>")
+        rowLabel(target, "100,000 lookups");
+        createChart(target, key + "1e");
+        createChart(target, key + "2e");
+        createChart(target, key + "3e");
+        createChart(target, key + "4e");
+        document.write("</p>")
+
+
+        d3.csv("statistics.txt", type, function (error, data) {
+            allData = data;
+        });
+    }
+</script>
+
+<body>
+    <div id="app">
+        <div class="container-fluid">
+            <div class="row justify-content-md-center">
+
+                <div class="col col-md-6">
+                    <div class="card">
+
+                        <!--header-->
+                        <div class="card-header">
+                            Chart 1
+                        </div>
+
+                        <!--new item-->
+                        <form class="card-block m-0" @submit.prevent="refreshChart(1)">
+                            <div class="form-group row">
+                                <label for="keyType" class="col-sm-4 col-form-label">Key type</label>
+                                <div class="col-sm-8">
+                                    <select class="form-control" name="keyType" v-model="arg1.keyType">
+                                        <option value="integer">integer</option>
+                                        <option value="short_string">short string</option>
+                                        <option value="long_string">long string</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group row">
+                                <label for="valueSize" class="col-sm-4 col-form-label">Value size</label>
+                                <div class="col-sm-8">
+                                    <select class="form-control" name="valueSize" v-model="arg1.valueSize">
+                                        <option value="4">4 bytes</option>
+                                        <option value="16">16 bytes</option>
+                                        <option value="64">64 bytes</option>
+                                        <option value="256">256 bytes</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group row">
+                                <label for="constructType" class="col-sm-4 col-form-label">Construct type</label>
+                                <div class="col-sm-8">
+                                    <select class="form-control" name="constructType" v-model="arg1.constructType">
+                                        <option value="once">All in once</option>
+                                        <option value="sporadic">Sporadic</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group row">
+                                <label for="lookupType" class="col-sm-4 col-form-label">Lookup type</label>
+                                <div class="col-sm-8">
+                                    <select class="form-control" name="lookupType" v-model="arg1.lookupType">
+                                        <option value="cacheFriendly">Cache friendly</option>
+                                        <option value="sporadic">Sporadic</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group row">
+                                <label class="col-sm-4 col-form-label"></label>
+                                <div class="col-sm-8">
+                                    <button class="btn btn-primary"
+                                            type="submit">
+                                        <i class="fa fa-refresh"></i>
+                                        Refresh
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+
+                    </div>
+                    <div id="chart1" class="chart1"></div>
+                </div>
+
+                <div class="col col-md-6">
+                    <div class="card">
+
+                        <!--header-->
+                        <div class="card-header">
+                            Chart 2
+                        </div>
+
+                        <!--new item-->
+                        <form class="card-block m-0" @submit.prevent="refreshChart(2)">
+                            <div class="form-group row">
+                                <label for="keyType" class="col-sm-4 col-form-label">Key type</label>
+                                <div class="col-sm-8">
+                                    <select class="form-control" name="keyType" v-model="arg2.keyType">
+                                        <option value="integer">integer</option>
+                                        <option value="short_string">short string</option>
+                                        <option value="long_string">long string</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group row">
+                                <label for="valueSize" class="col-sm-4 col-form-label">Value size</label>
+                                <div class="col-sm-8">
+                                    <select class="form-control" name="valueSize" v-model="arg2.valueSize">
+                                        <option value="4">4 bytes</option>
+                                        <option value="16">16 bytes</option>
+                                        <option value="64">64 bytes</option>
+                                        <option value="256">256 bytes</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group row">
+                                <label for="constructType" class="col-sm-4 col-form-label">Construct type</label>
+                                <div class="col-sm-8">
+                                    <select class="form-control" name="constructType" v-model="arg2.constructType">
+                                        <option value="once">All in once</option>
+                                        <option value="sporadic">Sporadic</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group row">
+                                <label for="lookupType" class="col-sm-4 col-form-label">Lookup type</label>
+                                <div class="col-sm-8">
+                                    <select class="form-control" name="lookupType" v-model="arg2.lookupType">
+                                        <option value="cacheFriendly">Cache friendly</option>
+                                        <option value="sporadic">Sporadic</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group row">
+                                <label class="col-sm-4 col-form-label"></label>
+                                <div class="col-sm-8">
+                                    <button class="btn btn-primary"
+                                            type="submit">
+                                        <i class="fa fa-refresh"></i>
+                                        Refresh
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    <div id="chart2" class="chart2"></div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+    <script>createAllCharts(1);</script>
+    <script>createAllCharts(2);</script>
+</body>

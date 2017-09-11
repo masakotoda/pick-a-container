@@ -9,8 +9,15 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "pick.a.container", "pick.a.
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "pick.a.container.rpt", "pick.a.container.rpt", "{D43C5EE3-A4CA-428C-9EC2-D337FA3FE829}"
 	ProjectSection(SolutionItems) = preProject
+		pick.a.container.rpt\app.js = pick.a.container.rpt\app.js
+		pick.a.container.rpt\compare.html = pick.a.container.rpt\compare.html
 		pick.a.container.rpt\index.html = pick.a.container.rpt\index.html
 		pick.a.container.rpt\statistics.txt = pick.a.container.rpt\statistics.txt
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{8834DAFF-C29D-474D-A348-8DB98B1EAE74}"
+	ProjectSection(SolutionItems) = preProject
+		readme.txt = readme.txt
 	EndProjectSection
 EndProject
 Global
