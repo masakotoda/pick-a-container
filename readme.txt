@@ -50,7 +50,7 @@ Lookup
 Other assumption:
  * Guaranteed to be found.
  * To simulate somewhat realistic application, allocate extra memory here and there, access to it here and there.
- * The unit is microseconds.
+ * Darker blue is construction time. Lighter blue is lookup time. Number is total time in microseconds.
  * The spec of test PC: i7-6700HQ 2.6GHz, 16GB.
 
 Wish list
