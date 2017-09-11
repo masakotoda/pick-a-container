@@ -1,1 +1,1 @@
-keyFile,ignore,element,valueSize,keySize,container,constructType,constructMS,lookupType,lookupMS
+keyFile,ignore,element,valueSize,keySize,container,constructType,constructUS,lookupType,lookupUS

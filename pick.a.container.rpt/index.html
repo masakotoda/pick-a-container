@@ -100,7 +100,7 @@
             });
 
         filtered.forEach(function (d) {
-            d.value = d.constructMS + d.lookupMS * lookup;
+            d.value = d.constructUS + d.lookupUS * lookup;
         });
 
         var y = d3.scale.linear().range([height, 0]);
@@ -120,8 +120,8 @@
             .attr("width", barWidth - 1);
 
         bar.append("rect")
-            .attr("y", function (d) { return y(d.constructMS); })
-            .attr("height", function (d) { return height - y(d.constructMS); })
+            .attr("y", function (d) { return y(d.constructUS); })
+            .attr("height", function (d) { return height - y(d.constructUS); })
             .attr("width", barWidth - 1);
 
         bar.append("text")
@@ -139,8 +139,8 @@
 
     function type(d) {
         // coerce to number
-        d.constructMS = +d.constructMS;
-        d.lookupMS = +d.lookupMS;
+        d.constructUS = +d.constructUS;
+        d.lookupUS = +d.lookupUS;
         d.valueSize = +d.valueSize;
         d.element = +d.element;
         d.constructType = +d.constructType;
