@@ -423,7 +423,7 @@ int main(int argc, char** argv)
 	const std::string keyFile = argv[1];   // keys/keys_integer.txt, string10.txt, or string32.txt
 	const int M = atoi(argv[2]);           // # of container instances (I'm always passing 10 though...)
 	const int N = atoi(argv[3]);           // # of elements of each container - 10, 100, 1000, or 10000
-	const int valueSize = atoi(argv[4]);  // 4, 16, 64, or 256
+	const int valueSize = atoi(argv[4]);   // 4, 16, 64, or 256
 	const std::string keyType = argv[5];   // string or integer
 	const std::string container = argv[6]; // vector, map, unordered_map, or flat_map
 	const int constructType = strcmp(argv[7], "construct-sporadic") == 0 ? 1 : 0;
